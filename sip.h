@@ -1,19 +1,9 @@
+/* SPDX-License-Identifier: BSD-2-Clause */
+
 /*
  * The SIP module interface.
  *
- * Copyright (c) 2023 Riverbank Computing Limited <info@riverbankcomputing.com>
- *
- * This file is part of SIP.
- *
- * This copy of SIP is licensed for use under the terms of the SIP License
- * Agreement.  See the file LICENSE for more details.
- *
- * This copy of SIP may also used under the terms of the GNU General Public
- * License v2 or v3 as published by the Free Software Foundation which can be
- * found in the files LICENSE-GPL2 and LICENSE-GPL3 included in this package.
- *
- * SIP is supplied WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * Copyright (c) 2025 Phil Thompson <phil@riverbankcomputing.com>
  */
 
 
@@ -24,8 +14,8 @@
 #include <Python.h>
 
 /* Sanity check on the Python version. */
-#if PY_VERSION_HEX < 0x03070000
-#error "This version of PyQt6.sip requires Python v3.7 or later"
+#if PY_VERSION_HEX < 0x03090000
+#error "This version of PyQt6.sip requires Python v3.9 or later"
 #endif
 
 
@@ -45,12 +35,28 @@ extern "C" {
 
 /* The version of the ABI. */
 #define SIP_ABI_MAJOR_VERSION       13
-#define SIP_ABI_MINOR_VERSION       6
+#define SIP_ABI_MINOR_VERSION       10
 #define SIP_MODULE_PATCH_VERSION    0
 
 
 /*
  * The change history of the ABI.
+ *
+ * v13.10
+ *  - Added SIP_ABI_VERSION as a module attribute.
+ *
+ * v13.9
+ *  - Python v3.9 or later is required.
+ *  - Added a new implementation of sipDeprecated() that takes an optional
+ *    supplementary message.
+ *
+ * v13.8
+ *  - Added the 'I' conversion character to the argument and result parsers.
+ *
+ * v13.7
+ *  - Added support for Python v3.13.
+ *  - Python v3.8 or later is required.
+ *  - C99 support is assumed.
  *
  * v13.6
  *  - Added support for Python v3.12.
@@ -79,8 +85,8 @@ extern "C" {
 
 
 /* The version of the code generator. */
-#define SIP_VERSION                 0x6070c
-#define SIP_VERSION_STR             "6.7.12"
+#define SIP_VERSION                 0x60a00
+#define SIP_VERSION_STR             "6.10.0"
 
 /* These are all dependent on the user-specified name of the sip module. */
 #define _SIP_MODULE_FQ_NAME         "PyQt6.sip"
@@ -1427,7 +1433,7 @@ typedef struct _sipAPIDef {
     PyObject *(*api_is_py_method_12_8)(sip_gilstate_t *gil, char *pymc,
             sipSimpleWrapper **sipSelfp, const char *cname, const char *mname);
     sipExceptionHandler (*api_next_exception_handler)(void **statep);
-    void (*unused_private_2)(void);
+    int (*api_deprecated_13_9)(const char *classname, const char *method, const char *message);
     void (*unused_private_3)(void);
     void (*unused_private_4)(void);
     void (*unused_private_5)(void);

@@ -1,6 +1,4 @@
 LICENSE
-LICENSE-GPL2
-LICENSE-GPL3
 MANIFEST.in
 README
 pyproject.toml
@@ -9,7 +7,6 @@ setup.py
 sip.h
 sip_array.c
 sip_array.h
-sip_bool.cpp
 sip_core.c
 sip_core.h
 sip_descriptors.c
