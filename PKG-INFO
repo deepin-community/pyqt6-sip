@@ -1,21 +1,20 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.2
 Name: PyQt6_sip
-Version: 13.6.0
+Version: 13.10.0
 Summary: The sip module support for PyQt6
-Home-page: https://www.riverbankcomputing.com/software/sip/
-Author: Riverbank Computing Limited
-Author-email: info@riverbankcomputing.com
-License: SIP
+Home-page: https://github.com/Python-SIP/sip
+Author: Phil Thompson
+Author-email: phil@riverbankcomputing.com
+License: BSD-2-Clause
 Platform: X11
 Platform: macOS
 Platform: Windows
-Requires-Python: >=3.7
+Requires-Python: >=3.9
 License-File: LICENSE
-License-File: LICENSE-GPL2
-License-File: LICENSE-GPL3
+Dynamic: license
+Dynamic: requires-python
 
 sip Extension Module
 ====================
 
-The sip extension module provides support for the PyQt6
-package.
+The sip extension module provides support for the PyQt6 package.

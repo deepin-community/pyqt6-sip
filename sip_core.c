@@ -1,22 +1,13 @@
+/* SPDX-License-Identifier: BSD-2-Clause */
+
 /*
  * The core sip module code.
  *
- * Copyright (c) 2023 Riverbank Computing Limited <info@riverbankcomputing.com>
- *
- * This file is part of SIP.
- *
- * This copy of SIP is licensed for use under the terms of the SIP License
- * Agreement.  See the file LICENSE for more details.
- *
- * This copy of SIP may also used under the terms of the GNU General Public
- * License v2 or v3 as published by the Free Software Foundation which can be
- * found in the files LICENSE-GPL2 and LICENSE-GPL3 included in this package.
- *
- * SIP is supplied WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * Copyright (c) 2025 Phil Thompson <phil@riverbankcomputing.com>
  */
 
 
+/* Remove when Python v3.12 is no longer supported. */
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <datetime.h>
@@ -32,12 +23,6 @@
 #include "sip_enum.h"
 
 #include "sip_core.h"
-
-
-/* There doesn't seem to be a standard way of checking for C99 support. */
-#if !defined(va_copy)
-#define va_copy(d, s)   ((d) = (s))
-#endif
 
 
 /*
@@ -103,9 +88,7 @@ PyTypeObject sipWrapperType_Type = {
     0,                      /* tp_del */
     0,                      /* tp_version_tag */
     0,                      /* tp_finalize */
-#if PY_VERSION_HEX >= 0x03080000
     0,                      /* tp_vectorcall */
-#endif
 };
 
 
@@ -171,9 +154,7 @@ static sipWrapperType sipWrapper_Type = {
             0,              /* tp_del */
             0,              /* tp_version_tag */
             0,              /* tp_finalize */
-#if PY_VERSION_HEX >= 0x03080000
             0,              /* tp_vectorcall */
-#endif
         },
         {
             0,              /* am_await */
@@ -246,9 +227,7 @@ static sipWrapperType sipWrapper_Type = {
         0,                  /* ht_slots */
         0,                  /* ht_qualname */
         0,                  /* ht_cached_keys */
-#if PY_VERSION_HEX >= 0x03090000
         0,                  /* ht_module */
-#endif
 #if !defined(STACKLESS)
     },
 #endif
@@ -566,7 +545,7 @@ static const sipAPIDef sip_api = {
     sip_api_instance_destroyed_ex,
     sip_api_is_py_method_12_8,
     sip_api_next_exception_handler,
-    NULL,
+    sip_api_deprecated_13_9,
     NULL,
     NULL,
     NULL,
@@ -893,10 +872,6 @@ const sipAPIDef *sip_init_library(PyObject *mod_dict)
     PyObject *obj;
     PyMethodDef *md;
 
-#if PY_VERSION_HEX < 0x03070000 && defined(WITH_THREAD)
-    PyEval_InitThreads();
-#endif
-
     if (sip_enum_init() < 0)
         return NULL;
 
@@ -909,6 +884,14 @@ const sipAPIDef *sip_init_library(PyObject *mod_dict)
     obj = PyUnicode_FromString(SIP_VERSION_STR);
 
     if (sip_dict_set_and_discard(mod_dict, "SIP_VERSION_STR", obj) < 0)
+        return NULL;
+
+    /* Add the SIP ABI version number. */
+    obj = PyLong_FromLong((SIP_ABI_MAJOR_VERSION << 16) +
+            (SIP_ABI_MINOR_VERSION << 8) +
+            SIP_MODULE_PATCH_VERSION);
+
+    if (sip_dict_set_and_discard(mod_dict, "SIP_ABI_VERSION", obj) < 0)
         return NULL;
 
     /* Add the methods. */
@@ -2321,7 +2304,7 @@ static PyObject *buildObject(PyObject *obj, const char *fmt, va_list va)
             break;
 
         case '=':
-            el = PyLong_FromUnsignedLong(va_arg(va, size_t));
+            el = PyLong_FromSize_t(va_arg(va, size_t));
             break;
 
         case 'N':
@@ -2614,7 +2597,7 @@ static int parseResult(PyObject *method, PyObject *res,
             case 'a':
                 {
                     char *p = va_arg(va, char *);
-                    int enc;
+                    int enc = -1;
 
                     switch (*fmt++)
                     {
@@ -2629,9 +2612,6 @@ static int parseResult(PyObject *method, PyObject *res,
                     case '8':
                         enc = parseString_AsUTF8Char(arg, p);
                         break;
-
-                    default:
-                        enc = -1;
                     }
 
                     if (enc < 0)
@@ -2686,6 +2666,19 @@ static int parseResult(PyObject *method, PyObject *res,
                 {
                     float *p = va_arg(va, float *);
                     float v = (float)PyFloat_AsDouble(arg);
+
+                    if (PyErr_Occurred())
+                        invalid = TRUE;
+                    else if (p != NULL)
+                        *p = v;
+                }
+
+                break;
+
+            case 'I':
+                {
+                    char *p = va_arg(va, char *);
+                    char v = sip_api_long_as_char(arg);
 
                     if (PyErr_Occurred())
                         invalid = TRUE;
@@ -2855,7 +2848,7 @@ static int parseResult(PyObject *method, PyObject *res,
                 {
                     int key = va_arg(va, int);
                     const char **p = va_arg(va, const char **);
-                    PyObject *keep;
+                    PyObject *keep = NULL;
 
                     switch (*fmt++)
                     {
@@ -2870,9 +2863,6 @@ static int parseResult(PyObject *method, PyObject *res,
                     case '8':
                         keep = parseString_AsUTF8String(arg, p);
                         break;
-
-                    default:
-                        keep = NULL;
                     }
 
                     if (keep == NULL)
@@ -4322,9 +4312,28 @@ static int parsePass1(PyObject **parseErrp, PyObject **selfp, int *selfargp,
                 break;
             }
 
+        case 'I':
+            {
+                /* Char as an integer. */
+
+                char *p = va_arg(va, char *);
+
+                if (arg != NULL)
+                {
+                    char v = sip_api_long_as_char(arg);
+
+                    if (PyErr_Occurred())
+                        handle_failed_int_conversion(&failure, arg);
+                    else
+                        *p = v;
+                }
+
+                break;
+            }
+
         case 'L':
             {
-                /* Signed char. */
+                /* Signed char as an integer. */
 
                 signed char *p = va_arg(va, signed char *);
 
@@ -4343,7 +4352,7 @@ static int parsePass1(PyObject **parseErrp, PyObject **selfp, int *selfargp,
 
         case 'M':
             {
-                /* Unsigned char. */
+                /* Unsigned char as an integer. */
 
                 unsigned char *p = va_arg(va, unsigned char *);
 
@@ -4943,6 +4952,8 @@ static int parsePass2(PyObject *self, int selfarg, PyObject *sipArgs,
 
                 if (flags & FMT_AP_TRANSFER_THIS)
                     owner = va_arg(va, PyObject **);
+                else
+                    owner = NULL;
 
                 if (flags & FMT_AP_NO_CONVERTORS)
                 {
@@ -4969,7 +4980,7 @@ static int parsePass2(PyObject *self, int selfarg, PyObject *sipArgs,
                     if (iserr)
                         return FALSE;
 
-                    if (flags & FMT_AP_TRANSFER_THIS && *p != NULL)
+                    if (owner != NULL && *p != NULL)
                         *owner = arg;
                 }
 
@@ -5057,7 +5068,7 @@ static int parsePass2(PyObject *self, int selfarg, PyObject *sipArgs,
 
                 if (arg != NULL)
                 {
-                    int enc;
+                    int enc = -1;
 
                     switch (sub_fmt)
                     {
@@ -6664,6 +6675,16 @@ static void sip_api_abstract_method(const char *classname, const char *method)
  */
 int sip_api_deprecated(const char *classname, const char *method)
 {
+    return sip_api_deprecated_13_9(classname, method, NULL);
+}
+
+
+/*
+ * Report a deprecated class or method with an optional message.
+ */
+int sip_api_deprecated_13_9(const char *classname, const char *method,
+        const char *message)
+{
     char buf[100];
 
     if (classname == NULL)
@@ -6673,7 +6694,10 @@ int sip_api_deprecated(const char *classname, const char *method)
                 classname);
     else
         PyOS_snprintf(buf, sizeof (buf), "%s.%s() is deprecated", classname,
-                method);
+                method );
+
+    if (message != NULL)
+        PyOS_snprintf(&buf[strlen(buf)], sizeof (buf), ": %s", message);
 
     return PyErr_WarnEx(PyExc_DeprecationWarning, buf, 1);
 }
@@ -9503,6 +9527,10 @@ static PyObject *slot_richcompare(PyObject *self, PyObject *arg, int op)
     case Py_GE:
         st = ge_slot;
         break;
+
+    default:
+        /* Suppress a compiler warning. */
+        st = -1;
     }
 
     /* It might not exist if not all the above have been implemented. */
@@ -9632,9 +9660,7 @@ sipWrapperType sipSimpleWrapper_Type = {
             0,              /* tp_del */
             0,              /* tp_version_tag */
             0,              /* tp_finalize */
-#if PY_VERSION_HEX >= 0x03080000
             0,              /* tp_vectorcall */
-#endif
         },
         {
             0,              /* am_await */
@@ -9707,9 +9733,7 @@ sipWrapperType sipSimpleWrapper_Type = {
         0,                  /* ht_slots */
         0,                  /* ht_qualname */
         0,                  /* ht_cached_keys */
-#if PY_VERSION_HEX >= 0x03090000
         0,                  /* ht_module */
-#endif
 #if !defined(STACKLESS)
     },
 #endif
@@ -11453,7 +11477,6 @@ static void *sip_api_unicode_data(PyObject *obj, int *char_size,
  */
 static int sip_api_get_buffer_info(PyObject *obj, sipBufferInfoDef *bi)
 {
-    int rc;
     Py_buffer *buffer;
 
     if (!PyObject_CheckBuffer(obj))
@@ -11467,27 +11490,16 @@ static int sip_api_get_buffer_info(PyObject *obj, sipBufferInfoDef *bi)
 
     buffer = (Py_buffer *)bi->bi_internal;
 
-    if (PyObject_GetBuffer(obj, buffer, PyBUF_FORMAT) < 0)
+    if (PyObject_GetBuffer(obj, buffer, PyBUF_SIMPLE) < 0)
         return -1;
 
-    if (buffer->ndim == 1)
-    {
-        bi->bi_buf = buffer->buf;
-        bi->bi_obj = buffer->obj;
-        bi->bi_len = buffer->len;
-        bi->bi_readonly = buffer->readonly;
-        bi->bi_format = buffer->format;
+    bi->bi_buf = buffer->buf;
+    bi->bi_obj = buffer->obj;
+    bi->bi_len = buffer->len;
+    bi->bi_readonly = buffer->readonly;
+    bi->bi_format = buffer->format;
 
-        rc = 1;
-    }
-    else
-    {
-        PyErr_SetString(PyExc_TypeError, "a 1-dimensional buffer is required");
-        PyBuffer_Release(buffer);
-        rc = -1;
-    }
-
-    return rc;
+    return 1;
 }
 
 
@@ -11823,22 +11835,18 @@ PyObject *sip_get_qualname(const sipTypeDef *td, PyObject *name)
 
 
 /*
- * Implement PySlice_GetIndicesEx() (or its subsequent replacement).
+ * Unpack a slice object.
  */
 int sip_api_convert_from_slice_object(PyObject *slice, Py_ssize_t length,
         Py_ssize_t *start, Py_ssize_t *stop, Py_ssize_t *step,
         Py_ssize_t *slicelength)
 {
-#if PY_VERSION_HEX >= 0x03070000
     if (PySlice_Unpack(slice, start, stop, step) < 0)
         return -1;
 
     *slicelength = PySlice_AdjustIndices(length, start, stop, *step);
 
     return 0;
-#else
-    return PySlice_GetIndicesEx(slice, length, start, stop, step, slicelength);
-#endif
 }
 
 
